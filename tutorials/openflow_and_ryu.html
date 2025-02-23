@@ -158,7 +158,15 @@
             </div>
             
             <h2>Developing Custom Controllers</h2>
-            <p>[Guidelines for creating custom Ryu controllers - placeholder]</p>
+            <p># Create a directory for captures
+mkdir -p /opt/captures
+
+# Start listener with timestamp in filename
+while true; do
+    filename="/opt/captures/capture_$(date +%Y%m%d_%H%M%S).pcap"
+    nc -l -p 5555 | tcpdump -r - -w "$filename"
+    echo "Creating new capture file..."
+done</p>
             
             <h2>Additional Resources</h2>
             <ul class="resources-list">
