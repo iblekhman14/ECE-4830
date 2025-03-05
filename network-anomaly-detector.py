@@ -525,7 +525,8 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
         f.write(f"Attack Detection Summary for {pcap_file}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         f.write(f"Total packets analyzed: {len(df)}\n")
-        f.write(f"Attack packets detected: {len(attack_packets)} ({len(attack_packets)/len(df)*100:.2f}% if len(df)>0 else 0}%)\n\n")
+        attack_percentage = (len(attack_packets)/len(df)*100) if len(df) > 0 else 0
+        f.write(f"Attack packets detected: {len(attack_packets)} ({attack_percentage:.2f}%)\n\n")
         
         f.write("Attack Type Analysis:\n")
         if ddos_indicators:
