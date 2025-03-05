@@ -17,13 +17,14 @@ import argparse
 def process_pcap(file_path, label=None):
     """
     Process a PCAP file and extract features relevant to DDoS, DNS tunneling, and MitM attacks.
+    Also extracts MAC addresses for blocking purposes.
     
     Args:
         file_path: Path to the pcap file
         label: Optional label (0 for normal, 1 for malicious)
     
     Returns:
-        DataFrame with extracted features
+        DataFrame with extracted features including MAC addresses
     """
     data = []
     print(f"Processing file: {file_path}")
@@ -43,6 +44,14 @@ def process_pcap(file_path, label=None):
                 print(f"Processed {packet_count} packets...")
             
             try:
+                # Extract Ethernet MAC addresses if available
+                if hasattr(packet, 'eth'):
+                    packet_data['src_mac'] = packet.eth.src
+                    packet_data['dst_mac'] = packet.eth.dst
+                else:
+                    packet_data['src_mac'] = "00:00:00:00:00:00"
+                    packet_data['dst_mac'] = "00:00:00:00:00:00"
+                
                 # Basic IP features
                 if hasattr(packet, 'ip'):
                     packet_data['src_ip'] = packet.ip.src
@@ -114,6 +123,12 @@ def process_pcap(file_path, label=None):
                 if hasattr(packet, 'arp'):
                     packet_data['is_arp'] = 1
                     packet_data['arp_opcode'] = int(packet.arp.opcode) if hasattr(packet.arp, 'opcode') else 0
+                    
+                    # Get MAC addresses from ARP
+                    if hasattr(packet.arp, 'src_hw_mac'):
+                        packet_data['src_mac'] = packet.arp.src_hw_mac
+                    if hasattr(packet.arp, 'dst_hw_mac'):
+                        packet_data['dst_mac'] = packet.arp.dst_hw_mac
                 else:
                     packet_data['is_arp'] = 0
                     packet_data['arp_opcode'] = 0
@@ -412,9 +427,11 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
         print("Error: No valid packets found in the PCAP file.")
         return
     
-    # Save original IPs for reference
+    # Save original IPs and MACs for reference
     src_ips = df['src_ip'].copy()
     dst_ips = df['dst_ip'].copy()
+    src_macs = df['src_mac'].copy() if 'src_mac' in df.columns else pd.Series([''] * len(df))
+    dst_macs = df['dst_mac'].copy() if 'dst_mac' in df.columns else pd.Series([''] * len(df))
     
     # Preprocess data
     X, _, _ = preprocess_data(df, scaler)
@@ -428,34 +445,69 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
     df['attack_score'] = attack_scores
     df['attack_detected'] = (attack_scores > 0.5).astype(int)
     
-    # Restore original IPs
+    # Restore original IPs and MACs
     df['src_ip'] = src_ips
     df['dst_ip'] = dst_ips
+    df['src_mac'] = src_macs
+    df['dst_mac'] = dst_macs
     
     # Analyze attack types
     attack_packets = df[df['attack_detected'] == 1]
+    
+    # Initialize indicator variables
+    ddos_indicators = False
+    dns_tunnel_indicators = pd.Series([False] * len(attack_packets)) if not attack_packets.empty else pd.Series([])
+    mitm_indicators = pd.Series([False] * len(attack_packets)) if not attack_packets.empty else pd.Series([])
+    attack_sources = pd.Series(dtype=int) if attack_packets.empty else attack_packets['src_ip'].value_counts().head(10)
     
     if len(attack_packets) > 0:
         print(f"Detected {len(attack_packets)} attack packets out of {len(df)} total packets")
         
         # Identify potential attack types
-        ddos_indicators = attack_packets['is_syn_flood'].sum() > 0 or attack_packets['syn_flood_rate'].max() > 10
-        dns_tunnel_indicators = (attack_packets['is_dns'] == 1) & (attack_packets['dns_query_entropy'] > 4)
-        mitm_indicators = (attack_packets['is_arp'] == 1) & (attack_packets['arp_opcode'] == 2)
+        if 'is_syn_flood' in attack_packets.columns and 'syn_flood_rate' in attack_packets.columns:
+            ddos_indicators = attack_packets['is_syn_flood'].sum() > 0 or attack_packets['syn_flood_rate'].max() > 10
+        
+        if 'is_dns' in attack_packets.columns and 'dns_query_entropy' in attack_packets.columns:
+            dns_tunnel_indicators = (attack_packets['is_dns'] == 1) & (attack_packets['dns_query_entropy'] > 4)
+        
+        if 'is_arp' in attack_packets.columns and 'arp_opcode' in attack_packets.columns:
+            mitm_indicators = (attack_packets['is_arp'] == 1) & (attack_packets['arp_opcode'] == 2)
         
         print("\nAttack Type Analysis:")
         if ddos_indicators:
             print("- DDoS attack indicators detected (SYN flooding or high packet rates)")
-        if dns_tunnel_indicators.any():
+        if not dns_tunnel_indicators.empty and dns_tunnel_indicators.any():
             print("- DNS tunneling indicators detected (high entropy DNS queries)")
-        if mitm_indicators.any():
+        if not mitm_indicators.empty and mitm_indicators.any():
             print("- Man-in-the-Middle attack indicators detected (suspicious ARP replies)")
         
         # Identify top source IPs involved in attacks
-        attack_sources = attack_packets['src_ip'].value_counts().head(10)
         print("\nTop Attack Sources:")
         for ip, count in attack_sources.items():
             print(f"- {ip}: {count} packets")
+        
+        # Block malicious sources using Ryu if requested
+        block_sources = input("\nDo you want to block malicious sources using Ryu SDN controller? (y/n): ")
+        if block_sources.lower() == 'y':
+            print("\nBlocking malicious sources...")
+            
+            # Get unique source MAC addresses from attack packets
+            if 'src_mac' in attack_packets.columns:
+                unique_macs = attack_packets['src_mac'].unique()
+                unique_ips = attack_packets['src_ip'].unique()
+                
+                print(f"Found {len(unique_macs)} unique MAC addresses to block")
+                
+                # Block each unique MAC
+                for i, mac in enumerate(unique_macs):
+                    ip = unique_ips[i] if i < len(unique_ips) else "unknown"
+                    if mac and mac != "00:00:00:00:00:00":
+                        print(f"\nBlocking MAC: {mac} (IP: {ip})")
+                        block_malicious_source(ip, mac_address=mac)
+            else:
+                print("No MAC addresses found in attack packets. Blocking by IP only.")
+                for ip in attack_packets['src_ip'].unique():
+                    block_malicious_source(ip)
     else:
         print("No attack packets detected.")
     
@@ -473,19 +525,20 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
         f.write(f"Attack Detection Summary for {pcap_file}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         f.write(f"Total packets analyzed: {len(df)}\n")
-        f.write(f"Attack packets detected: {len(attack_packets)} ({len(attack_packets)/len(df)*100:.2f}%)\n\n")
+        f.write(f"Attack packets detected: {len(attack_packets)} ({len(attack_packets)/len(df)*100:.2f}% if len(df)>0 else 0}%)\n\n")
         
         f.write("Attack Type Analysis:\n")
         if ddos_indicators:
             f.write("- DDoS attack indicators detected (SYN flooding or high packet rates)\n")
-        if dns_tunnel_indicators.any():
+        if not dns_tunnel_indicators.empty and dns_tunnel_indicators.any():
             f.write("- DNS tunneling indicators detected (high entropy DNS queries)\n")
-        if mitm_indicators.any():
+        if not mitm_indicators.empty and mitm_indicators.any():
             f.write("- Man-in-the-Middle attack indicators detected (suspicious ARP replies)\n")
         
-        f.write("\nTop Attack Sources:\n")
-        for ip, count in attack_sources.items():
-            f.write(f"- {ip}: {count} packets\n")
+        if not attack_packets.empty:
+            f.write("\nTop Attack Sources:\n")
+            for ip, count in attack_sources.items():
+                f.write(f"- {ip}: {count} packets\n")
     
     print(f"Summary report saved to {summary_file}")
 
