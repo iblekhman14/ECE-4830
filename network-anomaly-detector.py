@@ -520,12 +520,15 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
                                 "actions": []  # Drop action by providing empty action list
                             }
                             
-                            print(f"Sending block request to Ryu controller at {RYU_CONTROLLER_URL}")
+                            # Set Ryu controller URL
+                            ryu_controller_url = "http://10.10.0.3:8080/stats/flowentry/add"
+                            
+                            print(f"Sending block request to Ryu controller at {ryu_controller_url}")
                             print(f"Flow rule: {json.dumps(flow_rule, indent=2)}")
                             
                             # Send the flow rule to Ryu controller
                             response = requests.post(
-                                RYU_CONTROLLER_URL,
+                                ryu_controller_url,
                                 data=json.dumps(flow_rule),
                                 headers={"Content-Type": "application/json"}
                             )
@@ -562,10 +565,13 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
                             "actions": []
                         }
                         
+                        # Set Ryu controller URL
+                        ryu_controller_url = "http://10.10.0.3:8080/stats/flowentry/add"
+                        
                         # Send request
-                        print(f"Sending block request to Ryu controller at {RYU_CONTROLLER_URL}")
+                        print(f"Sending block request to Ryu controller at {ryu_controller_url}")
                         response = requests.post(
-                            RYU_CONTROLLER_URL,
+                            ryu_controller_url,
                             data=json.dumps(flow_rule),
                             headers={"Content-Type": "application/json"}
                         )
