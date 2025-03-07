@@ -1,4 +1,1 @@
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"dpid": 0xBADA22, "cookie": 1, "cookie_mask": 1, "table_id": 0, "idle_timeout": 0, "hard_timeout": 0, "priority": 32768, "match": {"eth_src": "00:0c:29:5c:1c:41"}, "actions": []}' \
-  http://10.10.0.3:8080/stats/flowentry/add
+curl -X POST -d "{"dpid": 0xBADA22,"cookie": 1,"cookie_mask": 1,"table_id": 0,"idle_timeout": 0,"hard_timeout": 0,"priority": 32768,"match": {"eth_src": "00:0c:29:8b:c8:05"},"actions": []}" http://10.10.0.3:8080/stats/flowentry/add
