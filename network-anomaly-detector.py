@@ -13,6 +13,7 @@ import json
 import pickle
 from datetime import datetime
 import argparse
+import requests  # Import requests module for HTTP communication
 
 def process_pcap(file_path, label=None):
     """
@@ -505,19 +506,20 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
                         print(f"\nBlocking MAC: {mac} (IP: {ip})")
                         # Create flow rule to drop traffic from this MAC
                         try:
-                            # Use the MAC address directly
+                            # Create flow rule to drop traffic from this MAC using the correct format
                             flow_rule = {
-                                "dpid": 0xBADA22,  # Default switch datapath ID
+                                "dpid": 0xBADA111,
                                 "cookie": 1,
                                 "cookie_mask": 1,
                                 "table_id": 0,
                                 "idle_timeout": 0,
                                 "hard_timeout": 0,
-                                "priority": 32768,
+                                "priority": 10000,
+                                "flags": 1,
                                 "match": {
                                     "eth_src": mac
                                 },
-                                "actions": []  # Drop action by providing empty action list
+                                "actions": []
                             }
                             
                             # Set Ryu controller URL
@@ -550,15 +552,16 @@ def detect_attacks(pcap_file, model_path='network_attack_model', scaler_path='ne
                         
                         print(f"Blocking IP: {ip} with generated MAC: {mac}")
                         
-                        # Create flow rule
+                        # Create flow rule using the correct format
                         flow_rule = {
-                            "dpid": 0xBADA22,
+                            "dpid": 0xBADA111,
                             "cookie": 1,
                             "cookie_mask": 1,
                             "table_id": 0,
                             "idle_timeout": 0,
                             "hard_timeout": 0,
-                            "priority": 32768,
+                            "priority": 10000,
+                            "flags": 1,
                             "match": {
                                 "eth_src": mac
                             },
